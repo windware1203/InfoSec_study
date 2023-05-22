@@ -1,15 +1,15 @@
 # Linux 資訊安全檢測與漏洞分析
-###### 【Linux Information Security Scanning And Vulnerability Assessment】
+###### 【Linux Information Security Auditing And Exploitation Analysis】
 :::info
 - **Study: Linux資訊安全檢測與漏洞分析**
 - **Author: [name=張呈顥(武田奈々)][$_{link}$](https://windware1203.github.io/takeda.github.io/html/about.html)**
 - **Advisor: [name=盧東華][$_{link}$](http://dhluserver.utaipei.edu.tw/)**
+- **[GitHub](https://github.com/windware1203/InfoSec_study)**
 :::
 ## Keypoint
-- Linux 防火牆系統與設定
 - 資安弱點掃描與檢測
 - 自動化腳本撰寫
-- 漏洞利用與原理
+- Linux kernel and applications 漏洞利用與原理
 
 ---
 :::danger
@@ -122,7 +122,7 @@ DESCRIPTION
 
 Chkrootkit – Linux Rootkit掃瞄器
 
-Chkrootkit亦是一個免費及開源的rootkit掃瞄工具，它能夠在Unix系統上進行本機檢查rootkit的跡象。它有助於檢測隱藏的安全漏洞。Chkrootkit包含一個shell腳本及一個程序，Shell腳本將會檢查系統二進制文件以進行rootkit修改，而程序將會檢查各種安全問題。
+Chkrootkit亦是一個免費及開源的rootkit掃描工具，它能夠在Unix系統上進行檢查rootkit的跡象。它有助於檢測隱藏的安全漏洞。Chkrootkit包含一個shell腳本及一個程式，Shell腳本將會檢查系統二進位文件以進行rootkit修改，而程式將會檢查各種安全問題。
 
 *chkrootkit工具於Debian的系統下安裝得比較簡單*
 
@@ -146,9 +146,9 @@ $ sudo chkrootkit （Debian）
 OR
 # /usr/local/chkrootkit/chkrootkit （CentOS）
 ```
-完成運作後您就能夠在報告中看到自己的伺服器有沒有惡意軟件及Rootkit。
+完成運作後您就能夠在報告中看到自己的伺服器有沒有惡意軟體及Rootkit。
 
-如上，如果您想要每晚自動運行及收到電郵通知，可以透過以下cron job在晚上3點自動運行並將報告發送到您的電子郵件地址。
+如上，如果您想要每晚自動運行及收到電郵通知，可以透過以下cron job在晚上3點自動執行並將報告發送到您的電子郵件地址。
 ```
 0 3 * * * /usr/sbin/chkrootkit 2>&1 | mail -s "chkrootkit Reports of My Server" name@example.com
 ```
