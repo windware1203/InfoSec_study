@@ -36,14 +36,14 @@ yum install lynis -y
 >![](https://i.imgur.com/SFLTDKF.png)
 
 ### 2. Updating Check
-```bash=
+```shell=
 lynis update info
 ```
 >It shows that is the least version.
 >![](https://i.imgur.com/uaVIHUA.png)
 
 ### 3. Start the audit
-```bash=
+```shell=
 sudo lynis audit system
 ```
 >Then, we got the scan details
@@ -124,44 +124,46 @@ Chkrootkit – Linux Rootkit掃瞄器
 
 Chkrootkit亦是一個免費及開源的rootkit掃描工具，它能夠在Unix系統上進行檢查rootkit的跡象。它有助於檢測隱藏的安全漏洞。Chkrootkit包含一個shell腳本及一個程式，Shell腳本將會檢查系統二進位文件以進行rootkit修改，而程式將會檢查各種安全問題。
 
-*chkrootkit工具於Debian的系統下安裝得比較簡單*
+> *chkrootkit工具於Debian的系統下安裝得比較簡單*
 
+```bash
 $ sudo apt install chkrootkit
+```
 
 於CentOS系統中你需要透過以下指令去下載。
-```
-# yum update
-# yum install wget gcc-c++ glibc-static
-# wget -c ftp://ftp.pangeia.com.br/pub/seg/pac/chkrootkit.tar.gz
-# tar –xzf chkrootkit.tar.gz
-# mkdir /usr/local/chkrootkit
-# mv chkrootkit-0.53/* /usr/local/chkrootkit
- (請檢查解壓後會是什麼版本，自行套落0.5X)
-# cd /usr/local/chkrootkit
-# make sense
+```bash
+yum update
+yum install wget gcc-c++ glibc-static
+wget -c ftp://ftp.pangeia.com.br/pub/seg/pac/chkrootkit.tar.gz
+tar –xzf chkrootkit.tar.gz
+mkdir /usr/local/chkrootkit
+mv chkrootkit-0.53/* /usr/local/chkrootkit
+# (請檢查解壓後會是什麼版本，自行套落0.5X)
+cd /usr/local/chkrootkit
+make sense
 ```
 現在可以開始運行Chkrootkit！
-```
-$ sudo chkrootkit （Debian）
-OR
-# /usr/local/chkrootkit/chkrootkit （CentOS）
+```bash
+sudo chkrootkit （Debian）
+#OR
+/usr/local/chkrootkit/chkrootkit （CentOS）
 ```
 完成運作後您就能夠在報告中看到自己的伺服器有沒有惡意軟體及Rootkit。
 
 如上，如果您想要每晚自動運行及收到電郵通知，可以透過以下cron job在晚上3點自動執行並將報告發送到您的電子郵件地址。
-```
+```bash
 0 3 * * * /usr/sbin/chkrootkit 2>&1 | mail -s "chkrootkit Reports of My Server" name@example.com
 ```
 ## ClamAV
-```
-# yum -y update
- （CentOS 第1步）
-# yum -y install clamav （CentOS 第2步）
+```bash
+yum -y update
+# （CentOS 第1步）
+yum -y install clamav #（CentOS 第2步）
 
 安裝後啟動是十分簡單的。
 
-# freshclam
-# clamscan -r -i DIRECTORY
+freshclam
+clamscan -r -i DIRECTORY
 ```
 ## LMD
 
