@@ -1,4 +1,7 @@
 # Linux 資訊安全檢測與漏洞分析
+
+[![hackmd-github-sync-badge](https://hackmd.io/n57-QrYMQlutygt1StYxiw/badge)](https://hackmd.io/n57-QrYMQlutygt1StYxiw)
+
 ###### 【Linux Information Security Auditing And Exploitation Analysis】
 :::info
 - **Study: Linux資訊安全檢測與漏洞分析**
@@ -11,7 +14,7 @@
 - 自動化腳本撰寫
 - Linux kernel and applications 漏洞利用與原理
 
----
+
 :::danger
 **All BASH commands are executed in the ==root== permission necessarily.**
 :::
@@ -21,7 +24,7 @@
 > ***Lynis, an introduction
 > Auditing, system hardening, compliance testing***
 
-### 1. Install
+### $\rm I、$ Install
 ```bash=
 # Github
 git clone https://github.com/CISOfy/lynis
@@ -35,7 +38,7 @@ yum install lynis -y
 >executing screen
 >![](https://i.imgur.com/SFLTDKF.png)
 
-### 2. Updating Check
+### $\rm II、$ Updating Check
 ```shell=
 lynis update info
 ```
@@ -43,7 +46,7 @@ lynis update info
 >
 >![](https://i.imgur.com/uaVIHUA.png)
 
-### 3. Start the audit
+### $\rm III、$ Start the audit
 ```shell=
 sudo lynis audit system
 ```
@@ -59,7 +62,7 @@ sudo lynis audit system
 > - **CVSS v. 3.x: $\color{red}{7.8\,\,\,\, HIGH}$**
 > - [第一次業師報告](https://www.canva.com/design/DAFeAKyP_Ss/sYjOtouW9QDGm4vOc395GQ/view#1)(CVE-2021-4034)
 
-### $\rm I$ polkit簡介
+### $\rm I、$ polkit簡介
 `polkit` 是一個在Unix like作業系統中，用來控制系統process權限的一套工具。它提供非特權processes以一個有系統性的方式與特權processes進行溝通；也可以使用`polkit`裡面具有提升權限的指令`pkexec`，來取得root特權(與`sudo`不同，polkit並沒有賦予完全的root權限)。
 > "Polkit (formerly PolicyKit) is a component for controlling system-wide privileges in Unix-like operating systems. It provides an organized way for non-privileged processes to communicate with privileged ones.  It is also possible to use polkit to execute commands with elevated privileges using the command pkexec followed by the command intended to be executed (with root permission)." (Wikipedia)
 
@@ -86,7 +89,7 @@ DESCRIPTION
        If username is not specified, then the program will be executed as the administrative super user, root.
 ```  
 
-### $\rm II$ 漏洞分析
+### $\rm II、$ 漏洞分析
 要分析此漏洞，我們要觀察source code-- [pkexec.c (ver. 0.120)](https://gitlab.freedesktop.org/polkit/polkit/-/blob/0.120/src/programs/pkexec.c)，先從`main`函數著手：
 ```cpp
  435 main (int argc, char *argv[])
@@ -111,21 +114,38 @@ DESCRIPTION
 - `int argc`: argument count，意即引數的個數；根據`C99`規範 "The value of argc shall be nonnegative." argc的值應為非負整數。
 - `char *argv[]`: argument value，引數的值。
 
-此程式乍看之下並無任何問題，但在些許非正常使用情況下將造成漏洞威脅。   
+此程式乍看之下並無任何問題，但在些許非正常使用情況下將造成漏洞威脅。  
 
-正常情況下，`argc`的值至少為 $1$ ，因為argument list最少包括程式自身名稱；但不幸的是，若我們使用`execve()`進行系統呼叫的時候，傳遞給它的值為空的 i.e. `{NULL}`，此時的`argc`為 $0$，`argv[0]`為`NULL`。
+正常情況下，`argc`的值至少為 $1$ ，因為argument list最少包括程式自身名稱；但不幸的是，若我們使用`execve()`進行系統呼叫的時候，傳遞給它的值為空的 i.e. `{NULL}`，此時的`argc`為 $0$，`argv[0]`為`NULL`，並且：
+- line 534, 整數 `n` 將永遠是 $1$
+- line 610, 指標 `path` 將因`argv[1]`造成越界讀取
+- line 639, 指標`s`將越界寫入到`argv[1]`
 
 
+那我們實際越界存取到的這個`argv[1]`究竟是什麼位置呢？要解答這個問題，必須先了解我們呼叫`execve()`的時候，kernel做了甚麼動作。當我們使用它新增了一個程式時，kernel會將引數、環境變數字串以及指標們（argv, envp）複製到此程式的堆疊結尾，圖例如下：
+```
+|---------+---------+-----+------------|---------+---------+-----+------------|
+| argv[0] | argv[1] | ... | argv[argc] | envp[0] | envp[1] | ... | envp[envc] |
+|----|----+----|----+-----+-----|------|----|----+----|----+-----+-----|------|
+     V         V                V           V         V                V
+ "program" "-option"           NULL      "value" "PATH=name"          NULL
+```
+因為`argv`及`envp`指標在記憶體中是連續的，我們可以輕易的觀察到，若`arcg`是 $0$，這個越界`argv[1]`其實是`envp[0]`，這個指標指向我們的第一個環境變數`value`。
 
+- 在第610行，從 argv[1]（即 envp[0]）中讀取的程式路徑超出了範圍，並指向 "value"；
+- 在第632行，這個路徑 "value" 被傳遞給 g_find_program_in_path()（因為 "value" 不以斜線開頭，所以在第629行）；
+- g_find_program_in_path() 在我們的 PATH 環境變數的目錄中搜尋名為 "value" 的可執行檔；
+    如果找到這樣的可執行檔，則將其完整路徑返回到 pkexec 的 main() 函數（在第632行）；
+- 並且在第639行，將這個完整路徑寫出到 argv[1]（即 envp[0]），從而覆蓋我們的第一個環境變數。
 
-### $\rm III$ 漏洞復現
+### $\rm III、$ 漏洞復現
 
 #### 環境
 :::success
 - **Linux版本:** Linux localhost.localdomain 3.10.0-1160.21.1.el7.x86_64 #1 SMP Tue Mar 16 18:28:22 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux
 ![](https://i.imgur.com/QOoKszB.png)
 
-- **pkexec版本:** 0.112
+- **pkexec版本:** 0.112  
 ![](https://i.imgur.com/v3A9Ftv.png)
 
 :::
@@ -136,7 +156,7 @@ DESCRIPTION
 > 執行破解程式後
 ![](https://i.imgur.com/5uSU5QJ.png)
 
-### $\rm IV$ 漏洞修補
+### $\rm IV、$ 漏洞修補
 >[pkexec.c (ver. 0.121)](https://gitlab.freedesktop.org/polkit/polkit/-/blob/121/src/programs/pkexec.c?ref_type=tags)
 
 由於此CVE風險分數高達 **7.8**，修補十分迅速，邏輯也十分簡單明瞭。
@@ -152,7 +172,7 @@ DESCRIPTION
 ```
 你沒有看錯，就是加上一個`if`進行`argc`的判斷，並且拋出`exit(127)`，如此暴力、簡單。
 
-### $\rm V$ 文獻
+### $\rm V、$ 文獻
 - [1] [pkexec.c](https://gitlab.freedesktop.org/polkit/polkit/-/blob/0.120/src/programs/pkexec.c)
 - [2] [PwnKit: Local Privilege Escalation Vulnerability Discovered in polkit’s pkexec](https://blog.qualys.com/vulnerabilities-threat-research/2022/01/25/pwnkit-local-privilege-escalation-vulnerability-discovered-in-polkits-pkexec-cve-2021-4034)
 - [3] [CVE-2021-4034 polkit（pkexec）提权漏洞复现](https://cloud.tencent.com/developer/article/1945253)
