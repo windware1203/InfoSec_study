@@ -12,13 +12,35 @@
 ## :star: Keypoint
 - 資安弱點掃描與檢測
 - 自動化腳本撰寫
-- Linux kernel and applications 漏洞利用與原理
+- Linux kernel and applications 漏洞利用與原理(CVE-2021-4034)
+- Looney Tunables: Local Privilege Escalation in the glibc's `ld.so`(CVE-2023-4911)
+
 
 
 :::danger
 **All BASH commands are executed in the ==root== permission necessarily.**
 :::
 
+## :star: yum update
+### $\rm I、$ auto-update
+
+Switch to the root user's crontab:
+
+```bash
+sudo crontab -e
+```
+
+Add the following line to schedule monthly system updates, ensuring that it runs with sudo:
+
+```bash
+0 3 1 * * sudo /usr/bin/yum -y update
+```
+
+In this line:
+
+0 3 1 * * specifies the timing to run the update on the 1st day of every month at 3:00 AM.
+
+sudo /usr/bin/yum -y update is the command to update all installed packages using yum. The -y flag answers "yes" to any prompts that may come up during the update process.
 
 ## :star: Lynis
 > ***Lynis, an introduction
@@ -54,9 +76,36 @@ sudo lynis audit system
 >
 >![](https://i.imgur.com/0xlKMHc.png)
 
+### $\rm IV、$ Auto-scanning one a month
+Open your terminal and run the following command to edit your crontab file:
 
+```bash=
+crontab -e
+```
 
-## :star: polkit之pkexec指令可進行提權
+Add the following line to schedule a monthly Lynis scan with a dynamic log file name that includes the month:
+
+```bash=
+0 3 1 * * /usr/sbin/lynis audit system --cronjob > /var/log/lynis_$(date +\%Y\%m).log
+```
+In this modified cron job:
+
+- `0` : Specifies the minute (0-59).
+- `3` : Specifies the hour (0-23).
+- `1` : Specifies the day of the month (1-31).
+- `*` : Specifies the month (1-12).
+- `*` : Specifies the day of the week (0-6, where 0 is Sunday).
+
+`0 3 1 * *` specifies the timing to run the Lynis scan on the 1st day of every month at 3:00 AM.
+
+`/usr/sbin/lynis audit system --cronjob` runs Lynis with the `--cronjob` flag to prevent Lynis from prompting for user input.
+
+> /var/log/lynis_$(date +\%Y\%m).log redirects the output of the Lynis scan to a log file with a name that includes the current year and month (e.g., "lynis_202309.log" for September 2023).
+
+Save the file and exit the text editor.
+With this setup, each time the cron job runs, it will create a new log file with a name that includes the current year and month, ensuring that you have separate log files for each month.
+
+## :star: polkit 之 **pkexec** 指令提權漏洞
 
 > - **keyword: Local Privilege Escalation, out-of-bounds read/write, Memory corruption, SUID-root program**
 > - **CVSS v. 3.x: $\color{red}{7.8\,\,\,\, HIGH}$**
@@ -67,10 +116,11 @@ sudo lynis audit system
 > "Polkit (formerly PolicyKit) is a component for controlling system-wide privileges in Unix-like operating systems. It provides an organized way for non-privileged processes to communicate with privileged ones.  It is also possible to use polkit to execute commands with elevated privileges using the command pkexec followed by the command intended to be executed (with root permission)." (Wikipedia)
 
 [Qualys](https://www.qualys.com/2022/01/25/cve-2021-4034/pwnkit.txt)研究員形容此漏洞是攻擊者的美夢成真：
-- pkexec被預設安裝在Linux的各個發行版上
-- 此漏洞自2009年5月就存在了(commit c8c3d83,"Add a `pkexec(1)` command")
-- 任何非特權使用者都可以取得完整的root權限
-- 就算polkit本身沒有運作，此漏洞也可以被利用
+- **pkexec被預設安裝在Linux的各個發行版上**
+- **此漏洞自2009年5月就存在了**
+    - (commit c8c3d83,"Add a `pkexec(1)` command")
+- **任何非特權使用者都可以取得完整的root權限**
+- **就算polkit本身沒有運作，此漏洞也可以被利用**
 
 
 另外，pkexec是一個sudo-like, SUID(SetUID)-root 工具，它的相關宣告如下：
@@ -138,6 +188,13 @@ DESCRIPTION
     如果找到這樣的可執行檔，則將其完整路徑返回到 pkexec 的 main() 函數（在第632行）；
 - 並且在第639行，將這個完整路徑寫出到 argv[1]（即 envp[0]），從而覆蓋我們的第一個環境變數。
 
+更精確地說：
+
+- 如果我們的`PATH`環境變數是`"PATH=name"`，而且十分剛好的這個目錄`name`存在在當前工作目錄，又更剛好的裡面有個可執行檔案`value`，然而此指向這個字串`"name/value"`會被越界寫入到`envp[0]`。
+    > "PATH=name" 可替換成 "PATH=name=" 亦成立
+
+
+
 ### $\rm III、$ 漏洞復現
 
 #### 環境
@@ -160,17 +217,19 @@ DESCRIPTION
 >[pkexec.c (ver. 0.121)](https://gitlab.freedesktop.org/polkit/polkit/-/blob/121/src/programs/pkexec.c?ref_type=tags)
 
 由於此CVE風險分數高達 **7.8**，修補十分迅速，邏輯也十分簡單明瞭。
-```cpp!
+```cpp=493
   /*
-   * If 'pkexec' is called THIS wrong, someone's probably evil-doing. 
-   * Don't be nice, just bail out.
+   * If 'pkexec' is called THIS wrong, someone's probably evil-doing. Don't be nice, just bail out.
    */
   if (argc<1)
     {
       exit(127);
     }
 ```
-你沒有看錯，就是加上一個`if`進行`argc`的判斷，並且拋出`exit(127)`，如此暴力、簡單。
+你沒有看錯，就是加上一個`if`進行`argc`的判斷，並且拋出`exit(127)`，如此暴力、簡單就能化解高風險漏洞；因此程式設計師對於變數、指標的變化必須要精確的掌控，以免發生此種越界讀寫的安全性問題。
+
+> 會直接觸發`if`，拋出`exit()`
+> ![](https://hackmd.io/_uploads/SJXNvjRy6.png)
 
 ### $\rm V、$ 文獻
 - [1] [pkexec.c](https://gitlab.freedesktop.org/polkit/polkit/-/blob/0.120/src/programs/pkexec.c)
@@ -182,9 +241,23 @@ DESCRIPTION
 - [7] [RedHat](https://access.redhat.com/security/vulnerabilities/RHSB-2022-001)
 - [8][深入分析](https://xz.aliyun.com/t/10870)
 
+## :star: **Looney Tunables**: Local Privilege Escalation in the glibc's `ld.so`
+> - **keywords: glibc, buffer overflow, SUID permission,**
+> - **CVSS v. 3.x: $\color{red}{7.8\,\,\,\, HIGH}$** 
+> - date: 2023/10/03
+> - [CVE-2023-4911](https://www.ithome.com.tw/news/159146) 
+
+> A buffer overflow was discovered in the GNU C Library’s dynamic loader ld.so while processing the GLIBC_TUNABLES environment variable. This issue could allow a local attacker to use maliciously crafted GLIBC_TUNABLES environment variables when launching binaries with SUID permission to execute code with elevated privileges.
+
+### reference
+- [cve.mitre.org](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2023-4911)
+- [Ubuntu](https://ubuntu.com/security/CVE-2023-4911)
+- [qualys](https://www.qualys.com/2023/10/03/cve-2023-4911/looney-tunables-local-privilege-escalation-glibc-ld-so.txt)
+
+
 ## :star: chkrootkit
 
-Chkrootkit – Linux Rootkit掃瞄器
+> Chkrootkit – Linux Rootkit Scanner
 
 Chkrootkit亦是一個免費及開源的rootkit掃描工具，它能夠在Unix系統上進行檢查rootkit的跡象。它有助於檢測隱藏的安全漏洞。Chkrootkit包含一個shell腳本及一個程式，Shell腳本將會檢查系統二進位文件以進行rootkit修改，而程式將會檢查各種安全問題。
 
@@ -206,23 +279,23 @@ mv chkrootkit-0.53/* /usr/local/chkrootkit
 cd /usr/local/chkrootkit
 make sense
 ```
-現在可以開始運行Chkrootkit！
+現在可以開始run Chkrootkit！
 ```bash
 sudo chkrootkit （Debian）
 #OR
 /usr/local/chkrootkit/chkrootkit （CentOS）
 ```
-完成運作後您就能夠在報告中看到自己的伺服器有沒有惡意軟體及Rootkit。
+跑完後您就能夠在報告中看到自己的伺服器有沒有惡意軟體及Rootkit。
 
 如上，如果您想要每晚自動運行及收到電郵通知，可以透過以下cron job在晚上3點自動執行並將報告發送到您的電子郵件地址。
 ```bash
 0 3 * * * /usr/sbin/chkrootkit 2>&1 | mail -s "chkrootkit Reports of My Server" name@example.com
 ```
 ## :star: ClamAV
+>ClamAV, short for "Clam AntiVirus," is an open-source antivirus software toolkit designed to detect and combat various forms of malware, including viruses, trojans, worms, and other malicious software. ClamAV is widely used in both personal and professional settings to provide an additional layer of security against malware threats.
 ```bash
 yum -y update
-# （CentOS 第1步）
-yum -y install clamav #（CentOS 第2步）
+yum -y install clamav
 
 安裝後啟動是十分簡單的。
 
@@ -233,3 +306,38 @@ clamscan -r -i DIRECTORY
 
 
 [ref](https://www.ltsplus.com/linux/centos-7-install-lmd-clam-antivirus)
+
+## 外部掃描
+- Nessus
+
+## 漏洞
+Nessus偵測之漏洞： HTTP TRACE / TRACK Methods Allowed
+CVSS V3.0: 5.3 
+
+
+
+HTTP TRACE/TRAC 通常用於 Debug，如何驗證系統是否真的有開啟 TRACE/TRACK 之功能，可使用telnet 網頁所在  80 port：
+`telnet 127.0.0.1 80`
+之後輸入
+`TRACE / HTTP/1.1
+Host: localhost.localdomain`
+再連續按兩下 Enter
+
+若系統有回應：
+`HTTP/1.1 200 OK`
+
+表示確實HTTP TRACE / TRACK Methods Allowed。
+那該如何關閉呢？可在 Apache 之設定檔 httpd.conf 加上 TraceEnable off 即可。
+`vi /etc/httpd/conf/httpd.conf`
+加上字串：`"TraceEnable off"`
+
+接著重新啟動 Apache 即可 `service httpd restart`
+
+
+
+使用 telnet 再測試一次，系統直接回應錯誤訊息：
+`HTTP/1.1 403 Forbidden` 表示HTTP TRACE / TRACK 確實已關閉
+
+## :star: 待研究 
+- ~~[Shellshock](https://devco.re/blog/2014/09/30/shellshock-CVE-2014-6271/)~~
+- [Exim Off-by-one RCE](https://devco.re/blog/2018/03/06/exim-off-by-one-RCE-exploiting-CVE-2018-6789-en/)
