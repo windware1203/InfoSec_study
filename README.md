@@ -182,17 +182,67 @@ DESCRIPTION
 ```
 因為`argv`及`envp`指標在記憶體中是連續的，我們可以輕易的觀察到，若`arcg`是 $0$，這個越界`argv[1]`其實是`envp[0]`，這個指標指向我們的第一個環境變數`value`。
 
-- 在第610行，從 argv[1]（即 envp[0]）中讀取的程式路徑超出了範圍，並指向 "value"；
-- 在第632行，這個路徑 "value" 被傳遞給 g_find_program_in_path()（因為 "value" 不以斜線開頭，所以在第629行）；
-- g_find_program_in_path() 在我們的 PATH 環境變數的目錄中搜尋名為 "value" 的可執行檔；
+- 在第610行，從`argv[1]`（即`envp[0]`）中讀取的程式路徑超出了範圍，並指向 "value"；
+- 在第632行，這個路徑 "value" 被傳遞給`g_find_program_in_path()`（因為 "value" 不以斜線開頭，所以在第629行）；
+- `g_find_program_in_path()`在我們的 PATH 環境變數的目錄中搜尋名為 "value" 的可執行檔；
     如果找到這樣的可執行檔，則將其完整路徑返回到 pkexec 的 main() 函數（在第632行）；
-- 並且在第639行，將這個完整路徑寫出到 argv[1]（即 envp[0]），從而覆蓋我們的第一個環境變數。
+- 並且在第639行，將這個完整路徑寫出到`argv[1]`（即`envp[0]`），從而覆蓋我們的第一個環境變數。
 
 更精確地說：
 
 - 如果我們的`PATH`環境變數是`"PATH=name"`，而且十分剛好的這個目錄`name`存在在當前工作目錄，又更剛好的裡面有個可執行檔案`value`，然而此指向這個字串`"name/value"`會被越界寫入到`envp[0]`。
     > "PATH=name" 可替換成 "PATH=name=" 亦成立
+- 換言之，此類的越界寫入允許我們重新引入這些不安全的環境變數到`pkexec`中(e.g., LD_PRELOAD)；此類不安全的變數通常在呼叫`main()`會被`ld.so`從SUID程式中移除。
+- 此外，值得注意的是polkit也支援非Linux作業系統，如：Solaris、BSD；然而在OpenBSD中，因為其kernel不接受`argc`為 $\color{green}0$ 的`execve()`，此漏洞不可被利用。
 
+至於要利用何種不安全的環境變數呢？這裡的選項是很有限的，因為在越界寫入後（at line 639）不久後，pkexec會==完全地==清除了他的環境變數（at line 702）。
+```c
+ 639       argv[n] = path = s;
+ ...
+ 657   for (n = 0; environment_variables_to_save[n] != NULL; n++)
+ 658     {
+ 659       const gchar *key = environment_variables_to_save[n];
+ ...
+ 662       value = g_getenv (key);
+ ...
+ 670       if (!validate_environment_variable (key, value))
+ ...
+ 675     }
+ ...
+ 702   if (clearenv () != 0)
+```
+
+[Qualys](https://www.qualys.com/2022/01/25/cve-2021-4034/pwnkit.txt)指出，為了印出錯誤訊息到stderr， pkexec 呼叫了GLib的`g_printerr()`；
+>the GLib is a [GNOME](https://www.gnome.org/) library, not the GNU C Library, aka glibc
+
+e.g., `validate_environment_variable()` 和
+`log_message()` 呼叫了 `g_printerr()` (at lines 126 and 408-409)：
+
+```c!
+  88 log_message (gint     level,
+  89              gboolean print_to_stderr,
+  90              const    gchar *format,
+  91              ...)
+  92 {
+ ...
+ 125   if (print_to_stderr)
+ 126     g_printerr ("%s\n", s);
+ ...
+ 383 validate_environment_variable (const gchar *key,
+ 384                                const gchar *value)
+ 385 {
+ ...
+ 406           log_message (LOG_CRIT, TRUE,
+ 407                        "The value for the SHELL variable was not found the /etc/shells file");
+ 408           g_printerr ("\n"
+ 409                       "This incident has been reported.\n");
+```
+`g_printerr()`通常會輸出UTF-8的錯誤訊息，但是若他的環境變數CHARSET不是UTF-8，他也可以輸出其他的字元集。
+> 這裡的CHARSET與安全無關，他不是不安全的環境變數之一。
+
+為了轉換錯誤訊息從UTF-8到其他字元集，pkexec呼叫了glibc的`iconv_open()`。
+
+要將一種字元集的訊息轉換為另一種字元集，我們使用`iconv_open() `函數來執行相關的共享library來進行轉換操作。通常，這個函數會使用預設設定檔（通常在/usr/lib/gconv/gconv-modules）中的設定，包括來源字元集、目的字元集以及library name。不過，您也可以透過設定環境變數GCONV_PATH 來強制`iconv_open()` 使用其他設定檔案。需要注意的是，GCONV_PATH屬於一個「不安全」的環境變數，因為它有潛在的風險，可能會執行任意函式庫。因此，在SUID 程序的環境中，系統會自動刪除GCONV_PATH 變數，以確保安全性。
 
 
 ### $\rm III、$ 漏洞復現
